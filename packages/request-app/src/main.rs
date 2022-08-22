@@ -11,7 +11,9 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() {
     // build our application with some routes
-    let app = Router::new().route("/greet/:name", get(greet));
+    let app = Router::new()
+        .route("/greet/:name", get(greet))
+        .route("/", get(root));
 
     // run it
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -19,6 +21,11 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+async fn root() -> impl IntoResponse {
+    let template = ConfirmTemplate;
+    HtmlTemplate(template)
 }
 
 async fn greet(extract::Path(name): extract::Path<String>) -> impl IntoResponse {
@@ -31,6 +38,10 @@ async fn greet(extract::Path(name): extract::Path<String>) -> impl IntoResponse 
 struct HelloTemplate {
     name: String,
 }
+
+#[derive(Template)]
+#[template(path = "confirm.html")]
+struct ConfirmTemplate;
 
 struct HtmlTemplate<T>(T);
 
