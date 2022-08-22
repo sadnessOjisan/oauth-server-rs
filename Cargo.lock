@@ -64,6 +64,12 @@ dependencies = [
 [[package]]
 name = "auth-server"
 version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "serde",
+ "tokio",
+]
 
 [[package]]
 name = "autocfg"
