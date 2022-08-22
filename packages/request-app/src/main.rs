@@ -1,23 +1,19 @@
+use askama::Template;
 use axum::{
+    extract,
     http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    response::{Html, IntoResponse, Response},
+    routing::get,
+    Router,
 };
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
-    // build our application with a route
-    let app = Router::new()
-        // `GET /` goes to `root`
-        .route("/", get(root))
-        // `POST /users` goes to `create_user`
-        .route("/users", post(create_user));
+    // build our application with some routes
+    let app = Router::new().route("/greet/:name", get(greet));
 
-    // run our app with hyper
-    // `axum::Server` is a re-export of `hyper::Server`
+    // run it
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
@@ -25,36 +21,31 @@ async fn main() {
         .unwrap();
 }
 
-// basic handler that responds with a static string
-async fn root() -> &'static str {
-    "Hello, World!"
+async fn greet(extract::Path(name): extract::Path<String>) -> impl IntoResponse {
+    let template = HelloTemplate { name };
+    HtmlTemplate(template)
 }
 
-async fn create_user(
-    // this argument tells axum to parse the request body
-    // as JSON into a `CreateUser` type
-    Json(payload): Json<CreateUser>,
-) -> impl IntoResponse {
-    // insert your application logic here
-    let user = User {
-        id: 1337,
-        username: payload.username,
-    };
-
-    // this will be converted into a JSON response
-    // with a status code of `201 Created`
-    (StatusCode::CREATED, Json(user))
+#[derive(Template)]
+#[template(path = "hello.html")]
+struct HelloTemplate {
+    name: String,
 }
 
-// the input to our `create_user` handler
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
+struct HtmlTemplate<T>(T);
 
-// the output to our `create_user` handler
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
+impl<T> IntoResponse for HtmlTemplate<T>
+where
+    T: Template,
+{
+    fn into_response(self) -> Response {
+        match self.0.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template. Error: {}", err),
+            )
+                .into_response(),
+        }
+    }
 }
