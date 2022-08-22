@@ -13,6 +13,7 @@ async fn main() {
     // build our application with some routes
     let app = Router::new()
         .route("/greet/:name", get(greet))
+        .route("/redirected", get(redirected))
         .route("/", get(root));
 
     // run it
@@ -25,6 +26,11 @@ async fn main() {
 
 async fn root() -> impl IntoResponse {
     let template = ConfirmTemplate;
+    HtmlTemplate(template)
+}
+
+async fn redirected() -> impl IntoResponse {
+    let template = RedirectedTemplate;
     HtmlTemplate(template)
 }
 
@@ -42,6 +48,10 @@ struct HelloTemplate {
 #[derive(Template)]
 #[template(path = "confirm.html")]
 struct ConfirmTemplate;
+
+#[derive(Template)]
+#[template(path = "redirected.html")]
+struct RedirectedTemplate;
 
 struct HtmlTemplate<T>(T);
 
