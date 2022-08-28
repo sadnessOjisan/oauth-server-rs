@@ -3,7 +3,7 @@ use axum::{
     extract,
     http::StatusCode,
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use std::net::SocketAddr;
@@ -13,7 +13,7 @@ async fn main() {
     // build our application with some routes
     let app = Router::new()
         .route("/greet/:name", get(greet))
-        .route("/redirected", get(redirected))
+        .route("/redirected", post(redirected))
         .route("/", get(root));
 
     // run it

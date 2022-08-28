@@ -1,12 +1,21 @@
 use askama::Template;
 use axum::{
+    extract::Form,
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Extension, Router,
 };
 use std::{collections::HashMap, iter::Map, net::SocketAddr, sync::Arc};
 use tokio::sync::{Mutex, RwLock};
+
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Login {
+    email: String,
+    password: String,
+}
 
 #[derive(Clone)]
 struct UserId(u32);
@@ -66,7 +75,7 @@ async fn main() {
     // build our application with some routes
     let app = Router::new()
         .route("/authorization", get(authorization))
-        .route("/decide_authorization", get(decide_authorization))
+        .route("/decide_authorization", post(decide_authorization))
         // グローバルなstoreの代わりとして。
         .layer(Extension(store));
 
@@ -85,10 +94,13 @@ async fn authorization() -> impl IntoResponse {
 }
 
 /// メアド、パスワードを受け取って、そのユーザー用の token を作る。
-async fn decide_authorization(store: Extension<SharedStore>) -> impl IntoResponse {
-    let requested_email = "sadness_ojisan@example.com".to_string();
-    let requested_pass = "sadness_ojisan";
-    let requested_user_email = UserEmail(requested_email);
+async fn decide_authorization(
+    form: Form<Login>,
+    store: Extension<SharedStore>,
+) -> impl IntoResponse {
+    let requested_email = &form.email;
+    let requested_pass = &form.password;
+    let requested_user_email = UserEmail(requested_email.to_string());
 
     let mut locked_store = store.0.try_lock().unwrap();
     let got_user = &locked_store.userEmailMap.0.get(&requested_user_email);

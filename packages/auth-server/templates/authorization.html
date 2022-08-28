@@ -7,7 +7,7 @@
     <title>Authorization | Bio</title>
   </head>
   <body>
-    <form>
+    <form action="/decide_authorization" method="POST">
       誕生日検索アプリが、当アプリの次の情報を使おうとしています。
       <ul>
         <li>誕生日</li>
@@ -15,7 +15,10 @@
 
       許可しますか？
 
+      <label>email</label>
       <input name="email" type="email" />
+
+      <label>password</label>
       <input name="password" type="password" />
       <button type="submit">送信</button>
     </form>
