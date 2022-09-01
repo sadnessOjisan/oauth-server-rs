@@ -1,20 +1,38 @@
 use askama::Template;
 use axum::{
     extract::Form,
-    http::StatusCode,
-    response::{Html, IntoResponse, Redirect, Response},
+    headers::HeaderMap,
+    http::{header::CONTENT_TYPE, Method, StatusCode},
+    response::{AppendHeaders, Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Extension, Router,
+    Extension, Json, Router,
 };
-use serde::Deserialize;
-use std::{collections::HashMap, iter::Map, net::SocketAddr, sync::Arc};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fmt::format, iter::Map, net::SocketAddr, sync::Arc};
 use tokio::sync::{Mutex, RwLock};
+use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
 #[derive(Deserialize)]
 struct Login {
     email: String,
     password: String,
+}
+
+#[derive(Deserialize)]
+struct TokenEndpoint {
+    grant_type: String,
+    code: String, // 認可コード
+    redirect_uri: Option<String>,
+    code_verifier: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TokenEndopointResponse {
+    access_token: String,          // 必須
+    token_type: String,            // 必須
+    expires_in: Option<u32>,       // 任意
+    refresh_token: Option<String>, // 任意
+    scope: Option<String>,         // 要求したスコープ群と差異があれば必須
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
@@ -78,10 +96,19 @@ async fn main() {
     };
     println!("start server");
     // build our application with some routes
+    let cors = CorsLayer::new()
+        // allow `GET` and `POST` when accessing the resource
+        .allow_methods([Method::GET, Method::POST])
+        // allow requests from any origin
+        .allow_origin(["http://localhost:3000".parse().unwrap()])
+        .allow_credentials(true)
+        .allow_headers([CONTENT_TYPE]);
     let app = Router::new()
         .route("/authorization", get(authorization))
         .route("/decide_authorization", post(decide_authorization))
         .route("/debug_store", get(debug_store))
+        .route("/token_endpoint", post(token_endpoint))
+        .layer(cors)
         // グローバルなstoreの代わりとして。
         .layer(Extension(store));
 
@@ -99,9 +126,64 @@ async fn debug_store(store: Extension<Store>) -> impl IntoResponse {
 }
 
 async fn authorization() -> impl IntoResponse {
-    println!("start server");
     let template = AuthorizationTemplate;
     HtmlTemplate(template)
+}
+
+fn create_access_token(code: &String) -> String {
+    format!("access_token_from_{}", code)
+}
+
+async fn token_endpoint(
+    Json(input): Json<TokenEndpoint>,
+    store: Extension<Store>,
+) -> impl IntoResponse {
+    let TokenEndpoint {
+        grant_type,
+        code,
+        code_verifier,
+        redirect_uri,
+    } = input;
+
+    let access_token = create_access_token(&code);
+    let mut access_token_guard = store.ableableAccessTokenMap.try_lock().unwrap();
+    let authorization_code_map_guard = store.ableableAuthorizationCodeMap.try_lock().unwrap();
+    let access_user = authorization_code_map_guard
+        .0
+        .get(&AuthorizationCode(code))
+        .expect("not exist code");
+    access_token_guard
+        .0
+        .insert(AccessToken(access_token.clone()), access_user.clone());
+    let mut headers = HeaderMap::new();
+
+    headers.insert(
+        "Set-Cookie",
+        format!(
+            "access_token={};Secure; domain=localhost; Max-Age=60000; SameSite=None",
+            &access_token
+        )
+        .parse()
+        .unwrap(),
+    );
+
+    headers.insert(
+        "Access-Control-Allow-Origin",
+        "http://localhost:3000".parse().unwrap(),
+    );
+
+    headers.insert("Access-Control-Allow-Credentials", "true".parse().unwrap());
+
+    (
+        headers,
+        Json(TokenEndopointResponse {
+            expires_in: None,
+            access_token: access_token,
+            token_type: "".to_string(),
+            refresh_token: None,
+            scope: None,
+        }),
+    )
 }
 
 /// メアド、パスワードを受け取って、そのユーザー用の token を作る。
@@ -110,8 +192,8 @@ async fn decide_authorization(form: Form<Login>, store: Extension<Store>) -> imp
     let Login { email, password } = form.0;
     let requested_user_email = UserEmail(email);
 
-    let mut userEmailMap = &store.userEmailMap;
-    let user_email_guard = userEmailMap.try_lock().unwrap();
+    let user_email_map = &store.userEmailMap;
+    let user_email_guard = user_email_map.try_lock().unwrap();
     let got_user = user_email_guard.0.get(&requested_user_email);
 
     let user = got_user.unwrap();
