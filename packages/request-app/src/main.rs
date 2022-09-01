@@ -10,14 +10,17 @@ use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
     // build our application with some routes
     let app = Router::new()
         .route("/greet/:name", get(greet))
         .route("/redirected", post(redirected))
         .route("/", get(root));
-
+    tracing::info!("kkkkk");
+    tracing::debug!("fsadfa");
     // run it
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -25,6 +28,7 @@ async fn main() {
 }
 
 async fn root() -> impl IntoResponse {
+    println!("start server");
     let template = ConfirmTemplate;
     HtmlTemplate(template)
 }

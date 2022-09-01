@@ -6,10 +6,10 @@ use axum::{
     routing::{get, post},
     Extension, Router,
 };
+use serde::Deserialize;
 use std::{collections::HashMap, iter::Map, net::SocketAddr, sync::Arc};
 use tokio::sync::{Mutex, RwLock};
-
-use serde::Deserialize;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Deserialize)]
 struct Login {
@@ -17,47 +17,50 @@ struct Login {
     password: String,
 }
 
-#[derive(Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct UserId(u32);
 
-#[derive(Eq, Hash, PartialEq, Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct UserEmail(String);
 
-#[derive(Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct User {
     id: UserId,
     email: UserEmail,
     password: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct UserEmailMap(HashMap<UserEmail, User>);
 
 /// 認可コード
-#[derive(Eq, Hash, PartialEq, Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct AuthorizationCode(String);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AbleableAuthorizationCodeMap(HashMap<AuthorizationCode, User>);
 
-#[derive(Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 struct AccessToken(String);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AbleableAccessTokenMap(HashMap<AccessToken, User>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Store {
-    userEmailMap: UserEmailMap,
-    ableableAuthorizationCodeMap: AbleableAuthorizationCodeMap,
-    ableableAccessTokenMap: AbleableAccessTokenMap,
+    userEmailMap: Arc<Mutex<UserEmailMap>>,
+    ableableAuthorizationCodeMap: Arc<Mutex<AbleableAuthorizationCodeMap>>,
+    ableableAccessTokenMap: Arc<Mutex<AbleableAccessTokenMap>>,
 }
-
-type SharedStore = Arc<Mutex<Store>>;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "auth-server=debug".into()),
+        ))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
     let mut users = UserEmailMap(HashMap::new());
     let user_email_1 = UserEmail("sadness_ojisan@example.com".to_string());
     let user_1 = User {
@@ -66,16 +69,19 @@ async fn main() {
         password: "sadness_ojisan".to_string(),
     };
     users.0.insert(user_email_1, user_1);
-    let store: SharedStore = Arc::new(Mutex::new(Store {
-        userEmailMap: users,
-        ableableAccessTokenMap: AbleableAccessTokenMap(HashMap::new()),
-        ableableAuthorizationCodeMap: AbleableAuthorizationCodeMap(HashMap::new()),
-    }));
+    let store: Store = Store {
+        userEmailMap: Arc::new(Mutex::new(users)),
+        ableableAccessTokenMap: Arc::new(Mutex::new(AbleableAccessTokenMap(HashMap::new()))),
+        ableableAuthorizationCodeMap: Arc::new(Mutex::new(AbleableAuthorizationCodeMap(
+            HashMap::new(),
+        ))),
+    };
     println!("start server");
     // build our application with some routes
     let app = Router::new()
         .route("/authorization", get(authorization))
         .route("/decide_authorization", post(decide_authorization))
+        .route("/debug_store", get(debug_store))
         // グローバルなstoreの代わりとして。
         .layer(Extension(store));
 
@@ -88,33 +94,42 @@ async fn main() {
         .unwrap();
 }
 
+async fn debug_store(store: Extension<Store>) -> impl IntoResponse {
+    format!("{:?}", store)
+}
+
 async fn authorization() -> impl IntoResponse {
+    println!("start server");
     let template = AuthorizationTemplate;
     HtmlTemplate(template)
 }
 
 /// メアド、パスワードを受け取って、そのユーザー用の token を作る。
-async fn decide_authorization(
-    form: Form<Login>,
-    store: Extension<SharedStore>,
-) -> impl IntoResponse {
-    let requested_email = &form.email;
-    let requested_pass = &form.password;
-    let requested_user_email = UserEmail(requested_email.to_string());
+async fn decide_authorization(form: Form<Login>, store: Extension<Store>) -> impl IntoResponse {
+    println!("start server");
+    let Login { email, password } = form.0;
+    let requested_user_email = UserEmail(email);
 
-    let mut locked_store = store.0.try_lock().unwrap();
-    let got_user = &locked_store.userEmailMap.0.get(&requested_user_email);
-    let user = got_user.unwrap().clone();
-    let user_pass = user.password.as_str();
+    let mut userEmailMap = &store.userEmailMap;
+    let user_email_guard = userEmailMap.try_lock().unwrap();
+    let got_user = user_email_guard.0.get(&requested_user_email);
 
-    let redirected = if requested_pass == user_pass {
+    let user = got_user.unwrap();
+
+    let User {
+        password: user_pass,
+        id,
+        email,
+    } = user;
+
+    let redirected = if &password == user_pass {
         // 普通はあらかじめ権限リクエストするアプリを作った人がどこにリダイレクトさせておきたいかを登録している想定
         let redirect_url = "http://localhost:3000/redirected";
         let code = format!("this_is_ninka_code_of_user_id_{}", &user.id.0);
 
-        // drop できなくてここのロックを剥がせない。どうすれば？
-        locked_store
-            .ableableAuthorizationCodeMap
+        let mut available_authorization_code_map_guard =
+            store.ableableAuthorizationCodeMap.try_lock().unwrap();
+        available_authorization_code_map_guard
             .0
             .insert(AuthorizationCode(code.clone()), user.clone());
 
@@ -122,7 +137,6 @@ async fn decide_authorization(
         let path = formated.as_str();
         Redirect::temporary(path)
     } else {
-        // 404 を返したいが、if-else で同じ型を強制されてしまう
         Redirect::temporary("404")
     };
     redirected
