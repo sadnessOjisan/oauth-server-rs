@@ -2,15 +2,31 @@
 
 Rust 実装の自作認証・認可サーバー
 
-認証ページ: http://localhost:3001/authorization
-
-email: sadness_ojisan@example.com
-pass: sadness_ojisan
-
 ```
-cargo run -p auth-server
+# http://127.0.0.1:3000/
+# 連携するかの確認画面
+
+# http://127.0.0.1:3000/redirected
+# 認可コードを受け取るためにリダイレクトで戻される画面
 
 cargo run -p request-app
+
+# http://127.0.0.1:3001/authorization
+# ID/PASS を打ち込んで認証できるUIを返す画面
+# 作成済みアカウント -> ID: sadness_ojisan@example.com / PASS: sadness_ojisan
+
+
+# http://127.0.0.1:3001/decide_authorization
+# 渡された ID/PASS から認可コードを作り、URLクエリパラメタに認可コードを付けたリクエストアプリにリダイレクトする
+
+# http://127.0.0.1:3001/token_endpoint
+# POSTされた認可コードをアクセストークンに引き換えるエンドポイント
+# JSON として返す以外にも、今回はクッキーにもつけている
+
+cargo run -p auth-server
+
+# http://127.0.0.1:3002/my_birthday
+# アクセストークンに紐づいたユーザー情報を返す（未実装）
 
 cargo run -p resource-server
 ```
