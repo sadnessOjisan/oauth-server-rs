@@ -1,14 +1,19 @@
 # oauth-server-rs
 
-**いまは実装ひどいからまだ見るな！！！！！！！！！！！！！！！**
-
 Rust 実装の自作認証・認可サーバー
 
 認証ページ: http://localhost:3001/authorization
 
 email: sadness_ojisan@example.com
-
 pass: sadness_ojisan
+
+```
+cargo run -p auth-server
+
+cargo run -p request-app
+
+cargo run -p resource-server
+```
 
 ## TODO
 

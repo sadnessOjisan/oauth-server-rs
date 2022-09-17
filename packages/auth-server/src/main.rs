@@ -3,13 +3,13 @@ use axum::{
     extract::Form,
     headers::HeaderMap,
     http::{header::CONTENT_TYPE, Method, StatusCode},
-    response::{AppendHeaders, Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::format, iter::Map, net::SocketAddr, sync::Arc};
-use tokio::sync::{Mutex, RwLock};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[derive(Deserialize)]
@@ -66,9 +66,9 @@ struct AbleableAccessTokenMap(HashMap<AccessToken, User>);
 
 #[derive(Clone, Debug)]
 struct Store {
-    userEmailMap: Arc<Mutex<UserEmailMap>>,
-    ableableAuthorizationCodeMap: Arc<Mutex<AbleableAuthorizationCodeMap>>,
-    ableableAccessTokenMap: Arc<Mutex<AbleableAccessTokenMap>>,
+    user_email_map: Arc<Mutex<UserEmailMap>>,
+    ableable_authorization_code_map: Arc<Mutex<AbleableAuthorizationCodeMap>>,
+    ableable_access_token_map: Arc<Mutex<AbleableAccessTokenMap>>,
 }
 
 #[tokio::main]
@@ -79,6 +79,8 @@ async fn main() {
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    // 登録済みユーザーをあらかじめ作成しておく
     let mut users = UserEmailMap(HashMap::new());
     let user_email_1 = UserEmail("sadness_ojisan@example.com".to_string());
     let user_1 = User {
@@ -88,9 +90,9 @@ async fn main() {
     };
     users.0.insert(user_email_1, user_1);
     let store: Store = Store {
-        userEmailMap: Arc::new(Mutex::new(users)),
-        ableableAccessTokenMap: Arc::new(Mutex::new(AbleableAccessTokenMap(HashMap::new()))),
-        ableableAuthorizationCodeMap: Arc::new(Mutex::new(AbleableAuthorizationCodeMap(
+        user_email_map: Arc::new(Mutex::new(users)),
+        ableable_access_token_map: Arc::new(Mutex::new(AbleableAccessTokenMap(HashMap::new()))),
+        ableable_authorization_code_map: Arc::new(Mutex::new(AbleableAuthorizationCodeMap(
             HashMap::new(),
         ))),
     };
@@ -139,15 +141,15 @@ async fn token_endpoint(
     store: Extension<Store>,
 ) -> impl IntoResponse {
     let TokenEndpoint {
-        grant_type,
+        grant_type: _,
         code,
-        code_verifier,
-        redirect_uri,
+        code_verifier: _,
+        redirect_uri: _,
     } = input;
 
     let access_token = create_access_token(&code);
-    let mut access_token_guard = store.ableableAccessTokenMap.try_lock().unwrap();
-    let authorization_code_map_guard = store.ableableAuthorizationCodeMap.try_lock().unwrap();
+    let mut access_token_guard = store.ableable_access_token_map.try_lock().unwrap();
+    let authorization_code_map_guard = store.ableable_authorization_code_map.try_lock().unwrap();
     let access_user = authorization_code_map_guard
         .0
         .get(&AuthorizationCode(code))
@@ -192,7 +194,7 @@ async fn decide_authorization(form: Form<Login>, store: Extension<Store>) -> imp
     let Login { email, password } = form.0;
     let requested_user_email = UserEmail(email);
 
-    let user_email_map = &store.userEmailMap;
+    let user_email_map = &store.user_email_map;
     let user_email_guard = user_email_map.try_lock().unwrap();
     let got_user = user_email_guard.0.get(&requested_user_email);
 
@@ -200,8 +202,8 @@ async fn decide_authorization(form: Form<Login>, store: Extension<Store>) -> imp
 
     let User {
         password: user_pass,
-        id,
-        email,
+        id: _,
+        email: _,
     } = user;
 
     let redirected = if &password == user_pass {
@@ -210,7 +212,7 @@ async fn decide_authorization(form: Form<Login>, store: Extension<Store>) -> imp
         let code = format!("this_is_ninka_code_of_user_id_{}", &user.id.0);
 
         let mut available_authorization_code_map_guard =
-            store.ableableAuthorizationCodeMap.try_lock().unwrap();
+            store.ableable_authorization_code_map.try_lock().unwrap();
         available_authorization_code_map_guard
             .0
             .insert(AuthorizationCode(code.clone()), user.clone());

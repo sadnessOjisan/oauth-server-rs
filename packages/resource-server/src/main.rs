@@ -1,8 +1,6 @@
 use axum::{
-    extract,
-    http::StatusCode,
-    response::{Html, IntoResponse, Json, Response},
-    routing::{get, post},
+    response::{IntoResponse, Json},
+    routing::get,
     Extension, Router,
 };
 use axum_extra::extract::cookie::CookieJar;
@@ -57,7 +55,10 @@ struct BirthDayResponse {
 }
 
 async fn my_birthday(store: Extension<Data>, jar: CookieJar) -> impl IntoResponse {
-    let access_token = jar.get("access_token").expect("should be exist cookie").value();
+    let access_token = jar
+        .get("access_token")
+        .expect("should be exist cookie")
+        .value();
     let uid = UserId(1);
     let guard = store.user.try_lock().unwrap();
     let user = guard.0.get(&uid).expect("should be exist");
